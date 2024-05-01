@@ -1,76 +1,36 @@
-from rest_framework import serializers
-from rest_framework.generics import GenericAPIView
-from rest_framework.mixins import ListModelMixin, CreateModelMixin, UpdateModelMixin
-from rest_framework.request import Request
+import json
+from rest_framework.views import APIView
 
-from contract.models import Contract
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
-
-class ContractSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Contract
-        fields = [
-            "id",
-            "title",
-        ]
+from contract.models import Contract, ContractReviewDepartment
+from contract.serializers import (
+    ContractSerializer, ContractCreateSerializer
+)
 
 
-class ContractCreateSerializer(serializers.ModelSerializer):
-    manager = serializers.HiddenField(default=serializers.CurrentUserDefault())
+class ContractView(APIView):
+    def post(self, request):
+        """ 계약서 작성 """
+        reviews = request.data.pop("reviews")
+        serializer = ContractCreateSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            ContractReviewDepartment.objects.bulk_create([
+                ContractReviewDepartment(department=review, contract_id=serializer.data["id"]) for review in reviews
+            ])
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    class Meta:
-        model = Contract
-        fields = [
-            "id",
-            "title",
-            "manager",
-            "is_reviewed",
-        ]
-        extra_kwargs = {
-            "id": {"read_only": True},
-            "is_reviewed": {"read_only": True},
-        }
-
-
-class ContractUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Contract
-        fields = [
-            "id",
-            "title",
-            "is_legal_team_confirmed",
-            "legal_team_manager",
-            "is_finance_team_confirmed",
-            "finance_team_manager",
-            "is_security_team_confirmed",
-            "security_team_manager",
-            "is_reviewed",
-        ]
-        extra_kwargs = {
-            "id": {"read_only": True},
-            "is_reviewed": {"read_only": True},
-        }
-
-
-class ContractListView(ListModelMixin, GenericAPIView):
-    queryset = Contract.objects.order_by("-id")
-    serializer_class = ContractSerializer
-
-    def get(self, request: Request, *args, **kwargs):
-        return self.list(request, *args, **kwargs)
-
-
-class ContractCreateView(CreateModelMixin, GenericAPIView):
-    queryset = Contract.objects.order_by("-id")
-    serializer_class = ContractCreateSerializer
-
-    def post(self, request: Request, *args, **kwargs):
-        return self.create(request, *args, **kwargs)
-
-
-class ContractUpdateView(UpdateModelMixin, GenericAPIView):
-    queryset = Contract.objects.order_by("-id")
-    serializer_class = ContractUpdateSerializer
-
-    def patch(self, request: Request, *args, **kwargs):
-        return self.update(request, partial=True, *args, **kwargs)
+    def get(self, request):
+        """ 계약 목록 조회 """
+        contracts = Contract.objects.all()
+        serializer = ContractSerializer(contracts, many=True)
+        
+        return Response(
+            {"data": serializer.data},
+            status=status.HTTP_200_OK,
+        )
